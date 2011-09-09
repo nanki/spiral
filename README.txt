@@ -28,6 +28,25 @@ CUI-based CHM viewer.
 
 * gem install spiral
 
+== KNOWN ISSUES:
+
+* w3m offten fails on a SEGV on Mac OS X 10.7 Lion
+* unkown error related with Thread#kill on Ruby 1.9.2
+
+== Default key binding
+
+  <C-w>
+    delete a word.
+
+  <C-n>
+    next entry
+
+  <C-p>
+    previous entry
+
+  <C-c>
+    exit
+
 == DEVELOPERS:
 
 After checking out the source, run:
