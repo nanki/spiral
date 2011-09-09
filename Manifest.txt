@@ -1,0 +1,13 @@
+bin/spiral
+Gemfile
+History.txt
+lib/spiral/display_data.rb
+lib/spiral/feed/base.rb
+lib/spiral/feed/chm.rb
+lib/spiral/renderer/w3m.rb
+lib/spiral/textbox.rb
+lib/spiral.rb
+Manifest.txt
+Rakefile
+README.txt
+test/test_spiral.rb

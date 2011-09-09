@@ -1,0 +1,220 @@
+#!/usr/bin/env ruby
+# -*- coding: UTF-8 -*-;
+
+require 'thread'
+require 'rubygems'
+
+gem 'ffi-chm'
+gem 'io-console'
+gem 'ansi'
+
+require 'ffi-chm'
+require 'io/console'
+require 'ansi'
+
+require 'spiral'
+
+module Spiral
+  class Bus
+    attr_reader :display_data, :render_queue
+
+    def initialize
+      @display_data = Queue.new
+      @render_queue = Queue.new
+    end
+  end
+
+  class Client
+    include ANSI::Code
+
+    def spawn_search(str)
+      Thread.new(@bus) do |bus|
+        str_downcase = str.downcase
+        if str_downcase == str
+          pattern = Regexp.compile(Regexp.escape(str), Regexp::IGNORECASE)
+        else
+          pattern = Regexp.compile(Regexp.escape(str))
+        end
+
+        is = []
+        class << is
+          def add(d)
+            @keys ||= {}
+            return false if @keys[d.content_key]
+            @keys[d.content_key] = true
+            self << d
+            true
+          end
+        end
+
+        keys = {}
+
+        bus.display_data.push [str, is, pattern]
+
+        [@chm.contents, @chm.index].flatten.each do |i|
+          next unless i.Name.downcase.start_with?(str_downcase) && i.Local
+          next unless is.add DisplayData.new(i.Name, i.Local, @chm)
+          bus.display_data.push [str, is, pattern]
+        end
+
+        if str.size > 1
+          @chm.fulltext_search(str_downcase) do |leaf|
+            doci = 0
+            @chm.fulltext_index.wlcs(leaf).each do |wlc|
+              doci += wlc.document_index
+              i = @chm.topics.record(doci)
+              next unless is.add DisplayData.new(i.title, i.local, @chm)
+              bus.display_data.push [str, is, pattern]
+            end
+          end
+        end
+      end
+    end
+
+    def spawn_input
+      Thread.new(@bus) do |bus|
+        Textbox.new.main do |cmd|
+          if Symbol === cmd 
+            bus.display_data.push cmd
+          else
+            bus.render_queue.clear
+            @search.kill
+            @search = spawn_search(cmd)
+          end
+        end
+
+        on_exit
+        exit
+      end
+    end
+
+    def on_exit
+      @chm.close
+    end
+
+    def spawn_display
+      Thread.new(@bus) do |bus|
+        args = nil
+        loop do
+          sleep 0.01
+
+          last = nil
+          while data = bus.display_data.shift(true) rescue nil
+            last = data
+          end
+
+          next unless last
+
+          case last
+          when :refresh
+          when :next
+            bus.render_queue.clear
+            Thread.current[:pos] += 1
+          when :prev
+            bus.render_queue.clear
+            Thread.current[:pos] -= 1
+          else
+            bus.render_queue.clear
+            Thread.current[:pos] = 0
+            args = last 
+          end
+
+          refresh *args
+        end
+      end
+    end
+
+    def initialize(path)
+      @bus = Bus.new
+
+      @chm = FFI::Chm::ChmFile.new(path)
+      @chm.open
+
+      render = Thread.new(@bus) do |bus|
+        while i = bus.render_queue.shift
+          i.retrieve
+          bus.display_data.push :refresh
+        end
+      end
+
+      display = spawn_display
+      display.priority = 1
+
+      @search = spawn_search ''
+
+      [@search, render, display, spawn_input].each(&:join)
+    end
+
+    def display(str, size = 0)
+      print clr
+      print "#{size} >> #{str}"
+    end
+
+    def nextline(l=nil)
+      @current_line = l if l
+
+      if @current_line >= $stdout.winsize.first
+        throw :exit
+      else
+        puts left($stdout.winsize.last)
+      end
+
+      @current_line += 1
+    end
+
+    def refresh(str, is, pattern)
+      print reset
+      print move 0, 0
+
+      if str.empty?
+        print cls
+        display str, 1
+        return
+      end
+
+      display str, is.size
+      nextline(1)
+
+      print save
+
+      pos = Thread.current[:pos] = [[Thread.current[:pos], is.size - 1].min, 0].max
+
+      is = is[pos..-1] || []
+
+      filled = true
+
+      catch(:exit) do
+        is.each do |i|
+          print clr
+          print underscore { blue { i.title } }
+
+          nextline
+
+          unless i.available?
+            filled &&= false
+            @bus.render_queue.push i
+            next
+          end
+          
+          i.content.each_line do |line|
+            print clr
+            print line.rstrip.gsub(pattern) {|md| red{ md } }
+
+            nextline
+          end
+        end
+
+        $stdout.winsize.first.times do
+          print clr
+          nextline
+        end
+      end
+
+      @bus.render_queue.clear if !is.empty? && filled
+
+      print restore
+    end
+  end
+end
+
+Spiral::Client.new ARGV.first
