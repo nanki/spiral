@@ -14,7 +14,7 @@ class Spiral::DisplayData
 
   def trim(html, id)
     doc = Nokogiri::XML.parse html
-    e = doc.at_css("##{id}")
+    e = doc.at_xpath('//*[@id="%s"]' % id)
 
     p = nil
     begin
