@@ -1,3 +1,5 @@
+require 'nokogiri'
+
 class Spiral::DisplayData
   attr_reader :title, :local
   attr_accessor :content
